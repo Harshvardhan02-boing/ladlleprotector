@@ -1,8 +1,8 @@
-const TelegramBot = require('node-telegram-bot-api')
-const fs = require('fs-extra')
-const path = require('path')
+const TelegramBot = require("node-telegram-bot-api")
+const fs = require("fs-extra")
+const {checkCoupon} = require("./checker")
 
-const TOKEN = "YOUR_BOT_TOKEN"
+const TOKEN = "8620466387:AAEuJFQSLm8KIvxaeVP8W6A9pA0BDyj7vXU"
 const ADMIN_ID = 2090180877
 
 const bot = new TelegramBot(TOKEN,{polling:true})
@@ -11,57 +11,65 @@ fs.ensureDirSync("./vouchers")
 fs.ensureDirSync("./cookies")
 fs.ensureDirSync("./logs")
 
-if(!fs.existsSync("users.json")) fs.writeJsonSync("users.json",[])
+if(!fs.existsSync("users.json"))
+ fs.writeJsonSync("users.json",[])
 
-let userMode = {}
+let userMode={}
 
-function loadUsers(){
+function users(){
  return fs.readJsonSync("users.json")
 }
 
-function saveUsers(users){
- fs.writeJsonSync("users.json",users)
+function saveUsers(u){
+ fs.writeJsonSync("users.json",u)
 }
 
-function registerUser(id){
- let users = loadUsers()
- if(!users.includes(id)){
-  users.push(id)
-  saveUsers(users)
+function register(id){
+
+ let u=users()
+
+ if(!u.includes(id)){
+  u.push(id)
+  saveUsers(u)
  }
 }
 
-function voucherFile(id){
- const file = `./vouchers/${id}.json`
+function file(id){
 
- if(!fs.existsSync(file)){
-  fs.writeJsonSync(file,{
+ const f=`./vouchers/${id}.json`
+
+ if(!fs.existsSync(f)){
+
+  fs.writeJsonSync(f,{
    "500":[],
    "1000":[],
    "2000":[],
    "4000":[]
   })
+
  }
 
- return file
+ return f
 }
 
-function loadVouchers(id){
- return fs.readJsonSync(voucherFile(id))
+function load(id){
+ return fs.readJsonSync(file(id))
 }
 
-function saveVouchers(id,data){
- const file = voucherFile(id)
- const temp = file+".tmp"
+function save(id,data){
+
+ const f=file(id)
+ const temp=f+".tmp"
 
  fs.writeJsonSync(temp,data,{spaces:2})
- fs.renameSync(temp,file)
+ fs.renameSync(temp,f)
 }
 
-function counts(id){
- const d = loadVouchers(id)
+function count(id){
 
- return {
+ const d=load(id)
+
+ return{
   "500":d["500"].length,
   "1000":d["1000"].length,
   "2000":d["2000"].length,
@@ -70,7 +78,8 @@ function counts(id){
 }
 
 function menu(){
- return {
+
+ return{
   reply_markup:{
    keyboard:[
     ["➕ Add Coupon","📤 Retrieve"],
@@ -84,21 +93,24 @@ function menu(){
 
 bot.onText(/\/start/,msg=>{
 
- const id = msg.from.id
- registerUser(id)
+ const id=msg.from.id
 
- bot.sendMessage(id,"💳 Coupon Manager\nChoose option below",menu())
+ register(id)
+
+ bot.sendMessage(id,"💳 Coupon Manager",menu())
+
 })
 
 bot.onText(/➕ Add Coupon/,msg=>{
 
- const id = msg.from.id
+ const id=msg.from.id
+
  userMode[id]="add"
 
- const c = counts(id)
+ const c=count(id)
 
  bot.sendMessage(id,
-`Select coupon value
+`Select value
 
 ₹500 (${c["500"]})
 ₹1000 (${c["1000"]})
@@ -108,13 +120,14 @@ bot.onText(/➕ Add Coupon/,msg=>{
 
 bot.onText(/📤 Retrieve/,msg=>{
 
- const id = msg.from.id
+ const id=msg.from.id
+
  userMode[id]="retrieve"
 
- const c = counts(id)
+ const c=count(id)
 
  bot.sendMessage(id,
-`Select coupon value
+`Select value
 
 ₹500 (${c["500"]})
 ₹1000 (${c["1000"]})
@@ -124,8 +137,9 @@ bot.onText(/📤 Retrieve/,msg=>{
 
 bot.onText(/📊 My Coupons/,msg=>{
 
- const id = msg.from.id
- const c = counts(id)
+ const id=msg.from.id
+
+ const c=count(id)
 
  bot.sendMessage(id,
 `Your Coupons
@@ -138,80 +152,60 @@ bot.onText(/📊 My Coupons/,msg=>{
 
 bot.onText(/🔎 Check/,msg=>{
 
- const id = msg.from.id
- userMode[id]="check"
+ userMode[msg.from.id]="check"
 
- bot.sendMessage(id,
-`Send coupons to check
+ bot.sendMessage(msg.from.id,
+`Send coupons
 
-Example:
-
-ABC123
-XYZ999
-
-Maximum 50`)
+Max 50`)
 })
 
 bot.onText(/🍪 Set Cookies/,msg=>{
 
- const id = msg.from.id
- userMode[id]="cookie"
+ userMode[msg.from.id]="cookie"
 
- bot.sendMessage(id,"Paste cookies JSON or header string")
+ bot.sendMessage(msg.from.id,"Paste cookies")
 })
 
-bot.onText(/🔍 Cookie Status/,msg=>{
+bot.onText(/🔍 Cookie Status/,async msg=>{
 
- const id = msg.from.id
+ const id=msg.from.id
 
- const file = `./cookies/${id}.json`
+ const r=await checkCoupon("TESTCODE",id)
 
- if(!fs.existsSync(file))
-  return bot.sendMessage(id,"❌ No cookies set")
+ if(r==="nocookie")
+  return bot.sendMessage(id,"❌ No cookies")
 
  bot.sendMessage(id,"✅ Cookie file found")
 })
 
-bot.onText(/\/announce (.+)/,(msg,match)=>{
+bot.on("message",async msg=>{
 
- const id = msg.from.id
- if(id!==ADMIN_ID) return
-
- const message = match[1]
- const users = loadUsers()
-
- users.forEach(u=>{
-  bot.sendMessage(u,message).catch(()=>{})
- })
-})
-
-bot.on("message",msg=>{
-
- const id = msg.from.id
- const text = msg.text
+ const id=msg.from.id
+ const text=msg.text
 
  if(!text) return
  if(text.startsWith("/")) return
 
  if(text.includes("₹")){
 
-  const value = text.split("₹")[1].split(" ")[0]
+  const value=text.split("₹")[1].split(" ")[0]
+
   userMode[id+"_value"]=value
 
-  if(userMode[id]=="add"){
-   bot.sendMessage(id,"Send coupon code")
-  }
+  if(userMode[id]=="add")
+   bot.sendMessage(id,"Send coupon")
 
   if(userMode[id]=="retrieve"){
 
-   const data = loadVouchers(id)
+   const data=load(id)
 
    if(data[value].length===0)
     return bot.sendMessage(id,"No coupons")
 
-   const code = data[value].shift()
+   const code=data[value].shift()
 
-   saveVouchers(id,data)
+   save(id,data)
 
    bot.sendMessage(id,"`"+code+"`",{parse_mode:"Markdown"})
   }
@@ -219,45 +213,61 @@ bot.on("message",msg=>{
   return
 }
 
-const mode = userMode[id]
+const mode=userMode[id]
 
-if(mode=="add"){
+if(mode==="add"){
 
- const value = userMode[id+"_value"]
- const data = loadVouchers(id)
+ const value=userMode[id+"_value"]
+ const data=load(id)
 
- const code = text.trim()
+ const code=text.trim()
 
  if(data[value].includes(code))
-  return bot.sendMessage(id,"⚠ Coupon already exists")
+  return bot.sendMessage(id,"⚠ Duplicate")
 
  data[value].push(code)
- saveVouchers(id,data)
+
+ save(id,data)
 
  bot.sendMessage(id,"Coupon added")
 }
 
-if(mode=="check"){
+if(mode==="check"){
 
- const raw = text.replace(/,/g,"\n").split("\n")
+ const raw=text.replace(/,/g,"\n").split("\n")
 
- const coupons = raw.map(x=>x.trim()).filter(x=>x).slice(0,50)
+ const coupons=raw.map(x=>x.trim()).filter(x=>x).slice(0,50)
 
- let result=[]
+ let results=[]
 
- coupons.forEach(c=>{
-  result.push("`"+c+"` : unchecked")
- })
+ for(const c of coupons){
 
- bot.sendMessage(id,result.join("\n"),{parse_mode:"Markdown"})
+  const r=await checkCoupon(c,id)
+
+  results.push("`"+c+"` : "+r)
+
+ }
+
+ bot.sendMessage(id,results.join("\n"),{parse_mode:"Markdown"})
 }
 
-if(mode=="cookie"){
+if(mode==="cookie"){
 
- const file = `./cookies/${id}.json`
- fs.writeFileSync(file,text)
+ fs.writeFileSync(`./cookies/${id}.json`,text)
 
  bot.sendMessage(id,"Cookies saved")
 }
+
+})
+
+bot.onText(/\/announce (.+)/,(msg,match)=>{
+
+ if(msg.from.id!==ADMIN_ID) return
+
+ const message=match[1]
+
+ const u=users()
+
+ u.forEach(x=>bot.sendMessage(x,message).catch(()=>{}))
 
 })
