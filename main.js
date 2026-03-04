@@ -4,7 +4,7 @@ const TelegramBot = require("node-telegram-bot-api")
 const fs = require("fs-extra")
 const { checkCoupon } = require("./checker")
 
-const TOKEN = process.env.BOT_TOKEN || "YOUR_BOT_TOKEN"
+const TOKEN = process.env.BOT_TOKEN || "8620466387:AAEuJFQSLm8KIvxaeVP8W6A9pA0BDyj7vXU"
 const ADMIN_ID = 2090180877
 
 const bot = new TelegramBot(TOKEN,{
