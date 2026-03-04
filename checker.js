@@ -1,130 +1,64 @@
-const fs = require("fs")
-const axios = require("axios")
+const axios = require('axios');
+const fs = require('fs-extra');
 
-function loadCookies(userId){
+/**
+ * Applies a coupon to the user's actual cart, checks validity, and resets it.
+ */
+async function checkCoupon(voucherCode, userId) {
+    const cookiePath = `./cookies/${userId}.json`;
+    if (!fs.existsSync(cookiePath)) return "nocookie";
 
- const file = `./cookies/${userId}.json`
+    const { cookie } = fs.readJsonSync(cookiePath);
+    
+    // Exact headers from the Python source for consistency
+    const headers = {
+        "accept": "application/json",
+        "accept-language": "en-US,en;q=0.9",
+        "content-type": "application/json",
+        "origin": "https://www.sheinindia.in",
+        "referer": "https://www.sheinindia.in/cart",
+        "user-agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Mobile Safari/537.36",
+        "x-tenant-id": "SHEIN",
+        "cookie": cookie
+    };
 
- if(!fs.existsSync(file)) return null
+    const payload = { 
+        "voucherId": voucherCode, 
+        "device": { "client_type": "web" } 
+    };
 
- try{
+    try {
+        // Step 1: Attempt to Apply the coupon to the real cart
+        const applyRes = await axios.post("https://www.sheinindia.in/api/cart/apply-voucher", payload, { 
+            headers, 
+            timeout: 20000 
+        });
 
-  const raw = fs.readFileSync(file,"utf8").trim()
+        const data = applyRes.data;
 
-  try{
-   const obj = JSON.parse(raw)
-   return Object.entries(obj).map(([k,v])=>`${k}=${v}`).join("; ")
-  }catch{
-   return raw
-  }
+        // Step 2: Check for error messages in the response
+        if (data.errorMessage) {
+            const errorMsg = JSON.stringify(data.errorMessage).toLowerCase();
+            
+            // Checking for specific invalidation reasons
+            if (errorMsg.includes("used") || errorMsg.includes("redeemed")) return "REDEEMED";
+            if (errorMsg.includes("not applicable")) return "NOT_APPLICABLE"; // e.g., cart value too low
+            return "INVALID";
+        }
 
- }catch{
-  return null
- }
+        // Step 3: If valid, Reset the voucher immediately to "save" it
+        await axios.post("https://www.sheinindia.in/api/cart/reset-voucher", payload, { 
+            headers, 
+            timeout: 10000 
+        });
+        
+        return "VALID";
 
+    } catch (error) {
+        // Handle IP blocks or network timeouts
+        if (error.response && error.response.status === 403) return "BLOCKED";
+        return "ERROR";
+    }
 }
 
-function getHeaders(cookie){
-
- return {
-  "accept":"application/json",
-  "content-type":"application/json",
-  "origin":"https://www.sheinindia.in",
-  "referer":"https://www.sheinindia.in/cart",
-  "user-agent":"Mozilla/5.0",
-  "x-tenant-id":"SHEIN",
-  "cookie":cookie
- }
-
-}
-
-async function applyVoucher(code,headers){
-
- try{
-
-  const res = await axios.post(
-   "https://www.sheinindia.in/api/cart/apply-voucher",
-   {
-    voucherId:code,
-    device:{client_type:"web"}
-   },
-   {
-    headers:headers,
-    timeout:45000
-   }
-  )
-
-  return res.data
-
- }catch(e){
-
-  if(e.response) return e.response.data
-
-  return null
-
- }
-
-}
-
-async function resetVoucher(code,headers){
-
- try{
-
-  await axios.post(
-   "https://www.sheinindia.in/api/cart/reset-voucher",
-   {
-    voucherId:code,
-    device:{client_type:"web"}
-   },
-   {
-    headers:headers,
-    timeout:20000
-   }
-  )
-
- }catch{}
-
-}
-
-function isApplicable(data){
-
- if(!data) return false
-
- if(data.errorMessage){
-
-  const errors = data.errorMessage.errors || []
-
-  for(const err of errors){
-
-   const msg = (err.message || "").toLowerCase()
-
-   if(msg.includes("not applicable"))
-    return false
-
-  }
-
- }
-
- return !data.errorMessage
-
-}
-
-async function checkCoupon(code,userId){
-
- const cookie = loadCookies(userId)
-
- if(!cookie) return "nocookie"
-
- const headers = getHeaders(cookie)
-
- const response = await applyVoucher(code,headers)
-
- const valid = isApplicable(response)
-
- await resetVoucher(code,headers)
-
- return valid ? "VALID" : "invalid"
-
-}
-
-module.exports = {checkCoupon}
+module.exports = { checkCoupon };
