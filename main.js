@@ -21,11 +21,29 @@ let mode={}
 let valueMap={}
 let cooldown={}
 
+bot.setMyCommands([
+ {command:"start",description:"Open main menu"}
+])
+
+function sleep(ms){
+ return new Promise(r=>setTimeout(r,ms))
+}
+
+async function smoothSend(id,text,opt={}){
+
+ await bot.sendChatAction(id,"typing")
+
+ await sleep(800)
+
+ return bot.sendMessage(id,text,opt)
+
+}
+
 function guard(id){
 
- const now = Date.now()
+ const now=Date.now()
 
- if(cooldown[id] && now-cooldown[id]<1000)
+ if(cooldown[id] && now-cooldown[id]<1500)
   return true
 
  cooldown[id]=now
@@ -37,17 +55,13 @@ function users(){
  return fs.readJsonSync("users.json")
 }
 
-function saveUsers(u){
- fs.writeJsonSync("users.json",u)
-}
-
 function register(id){
 
  let u=users()
 
  if(!u.includes(id)){
   u.push(id)
-  saveUsers(u)
+  fs.writeJsonSync("users.json",u)
  }
 
 }
@@ -57,14 +71,12 @@ function file(id){
  const f=`./vouchers/${id}.json`
 
  if(!fs.existsSync(f)){
-
   fs.writeJsonSync(f,{
    "500":[],
    "1000":[],
    "2000":[],
    "4000":[]
   })
-
  }
 
  return f
@@ -113,10 +125,10 @@ function categoryMenu(){
  return{
   reply_markup:{
    inline_keyboard:[
-    [{text:"500",callback_data:"val_500"}],
-    [{text:"1000",callback_data:"val_1000"}],
-    [{text:"2000",callback_data:"val_2000"}],
-    [{text:"4000",callback_data:"val_4000"}],
+    [{text:"💵 ₹500",callback_data:"val_500"}],
+    [{text:"💵 ₹1000",callback_data:"val_1000"}],
+    [{text:"💵 ₹2000",callback_data:"val_2000"}],
+    [{text:"💵 ₹4000",callback_data:"val_4000"}],
     [{text:"⬅ Back",callback_data:"menu"}]
    ]
   }
@@ -124,16 +136,20 @@ function categoryMenu(){
 
 }
 
-bot.onText(/\/start/,msg=>{
+bot.onText(/\/start/,async msg=>{
 
  const id=msg.from.id
 
  register(id)
 
- bot.sendMessage(
+ await smoothSend(
   id,
-  "💳 Coupon Manager\n\nChoose an option:",
-  mainMenu(id)
+`💳 *Coupon Manager*
+
+Manage, store and verify your coupons easily.
+
+Choose an option below ⬇`,
+  {parse_mode:"Markdown",...mainMenu(id)}
  )
 
 })
@@ -149,30 +165,31 @@ bot.on("callback_query",async q=>{
  try{
 
  if(data==="menu")
-  return bot.sendMessage(id,"Main Menu",mainMenu(id))
+  return smoothSend(id,"Main Menu",mainMenu(id))
 
  if(data==="add"){
   mode[id]="add"
-  return bot.sendMessage(id,"Select category",categoryMenu())
+  return smoothSend(id,"Select coupon category",categoryMenu())
  }
 
  if(data==="retrieve"){
   mode[id]="retrieve"
-  return bot.sendMessage(id,"Select category",categoryMenu())
+  return smoothSend(id,"Select coupon category",categoryMenu())
  }
 
  if(data==="stats"){
 
   const d=load(id)
 
-  return bot.sendMessage(
+  return smoothSend(
    id,
-`📊 Your Coupons
+`📊 *Your Coupons*
 
-500 : ${d["500"].length}
-1000 : ${d["1000"].length}
-2000 : ${d["2000"].length}
-4000 : ${d["4000"].length}`
+💵 ₹500  : ${d["500"].length}
+💵 ₹1000 : ${d["1000"].length}
+💵 ₹2000 : ${d["2000"].length}
+💵 ₹4000 : ${d["4000"].length}`,
+   {parse_mode:"Markdown"}
   )
 
  }
@@ -181,15 +198,19 @@ bot.on("callback_query",async q=>{
 
   mode[id]="check"
 
-  return bot.sendMessage(
+  return smoothSend(
    id,
-`🔎 Send coupons to check
+`🔎 *Coupon Checker*
+
+Send coupons to verify.
 
 Example:
+
 ABC123
 XYZ999
 
-Max 50 coupons`
+Maximum: 50 coupons`,
+   {parse_mode:"Markdown"}
   )
 
  }
@@ -198,21 +219,24 @@ Max 50 coupons`
 
   mode[id]="cookie"
 
-  return bot.sendMessage(
+  return smoothSend(
    id,
-`🍪 Paste your Shein cookies`
+`🍪 *Set Cookies*
+
+Paste your Shein cookie string.`,
+   {parse_mode:"Markdown"}
   )
 
  }
 
  if(data==="status"){
 
-  const cookieFile=`./cookies/${id}.json`
+  const f=`./cookies/${id}.json`
 
-  if(!fs.existsSync(cookieFile))
-   return bot.sendMessage(id,"❌ No cookies set")
+  if(!fs.existsSync(f))
+   return smoothSend(id,"❌ No cookies set")
 
-  return bot.sendMessage(id,"✅ Cookies detected")
+  return smoothSend(id,"✅ Cookies detected and ready")
 
  }
 
@@ -220,10 +244,7 @@ Max 50 coupons`
 
   mode[id]="announce"
 
-  return bot.sendMessage(
-   id,
-   "📢 Send announcement message"
-  )
+  return smoothSend(id,"📢 Send announcement message")
 
  }
 
@@ -234,22 +255,24 @@ Max 50 coupons`
   valueMap[id]=value
 
   if(mode[id]==="add")
-   return bot.sendMessage(id,"Send coupon code")
+   return smoothSend(id,"Send coupon code")
 
   if(mode[id]==="retrieve"){
 
    const d=load(id)
 
-   if(!d[value] || d[value].length===0)
-    return bot.sendMessage(id,"❌ No coupons")
+   if(d[value].length===0)
+    return smoothSend(id,"❌ No coupons available")
 
    const code=d[value].shift()
 
    saveAtomic(id,d)
 
-   return bot.sendMessage(
+   return smoothSend(
     id,
-    "🎟 Coupon\n`"+code+"`",
+`🎟 *Coupon Retrieved*
+
+\`${code}\``,
     {parse_mode:"Markdown"}
    )
 
@@ -263,31 +286,34 @@ Max 50 coupons`
 
 })
 
+function indiaTime(){
+
+ return new Date().toLocaleTimeString(
+  "en-IN",
+  {timeZone:"Asia/Kolkata"}
+ )
+
+}
+
 async function batchCheck(coupons,id){
 
  const results=[]
- const batchSize=5
 
- for(let i=0;i<coupons.length;i+=batchSize){
+ for(const code of coupons){
 
-  const batch=coupons.slice(i,i+batchSize)
+  await bot.sendChatAction(id,"typing")
 
-  const res=await Promise.all(
+  await sleep(250)
 
-   batch.map(async code=>{
+  if(code.length>25){
 
-    if(code.length>25)
-     return {code,result:"INVALID"}
+   results.push({code,result:"INVALID"})
+   continue
+  }
 
-    const r=await checkCoupon(code,id)
+  const r=await checkCoupon(code,id)
 
-    return {code,result:r}
-
-   })
-
-  )
-
-  results.push(...res)
+  results.push({code,result:r})
 
  }
 
@@ -315,13 +341,13 @@ bot.on("message",async msg=>{
   const code=text.trim()
 
   if(d[value].includes(code))
-   return bot.sendMessage(id,"Coupon already exists")
+   return smoothSend(id,"⚠ Coupon already exists")
 
   d[value].push(code)
 
   saveAtomic(id,d)
 
-  return bot.sendMessage(id,"✅ Coupon added")
+  return smoothSend(id,"✅ Coupon added successfully")
 
  }
 
@@ -331,9 +357,14 @@ bot.on("message",async msg=>{
 
   const coupons=raw.map(x=>x.trim()).filter(x=>x).slice(0,50)
 
-  const data=await batchCheck(coupons,id)
+  await smoothSend(
+   id,
+`🔍 Checking ${coupons.length} coupon${coupons.length>1?"s":""}...
 
-  const time=new Date().toLocaleTimeString()
+Please wait ⏳`
+  )
+
+  const data=await batchCheck(coupons,id)
 
   let out=[]
 
@@ -353,47 +384,38 @@ bot.on("message",async msg=>{
    }
 
    if(r.result==="COOKIE_EXPIRED")
-    return bot.sendMessage(
-     id,
-     "🍪 Cookies expired. Please set cookies again."
-    )
+    return smoothSend(id,"🍪 Cookies expired. Please set new cookies.")
 
    if(r.result==="NO_COOKIE")
-    return bot.sendMessage(
-     id,
-     "🍪 No cookies found. Please set cookies."
-    )
+    return smoothSend(id,"🍪 No cookies found. Please set cookies first.")
 
    out.push(
 `${emoji} ${r.code}
 
-────────────
 Status : ${status}
-Time   : ${time}`
+Time   : ${indiaTime()}
+
+────────────`
    )
 
   }
 
-  return bot.sendMessage(
+  return smoothSend(
    id,
-   out.join("\n\n")
+   "📊 *Check Results*\n\n"+out.join("\n"),
+   {parse_mode:"Markdown"}
   )
 
  }
 
  if(m==="cookie"){
 
-  const cookie=text.trim()
-
   fs.writeFileSync(
    `./cookies/${id}.json`,
-   JSON.stringify({cookie:cookie,created:Date.now()})
+   JSON.stringify({cookie:text.trim(),created:Date.now()})
   )
 
-  return bot.sendMessage(
-   id,
-   "🍪 Cookies saved successfully"
-  )
+  return smoothSend(id,"🍪 Cookies saved successfully")
 
  }
 
@@ -406,7 +428,7 @@ Time   : ${time}`
 
   mode[id]=null
 
-  return bot.sendMessage(id,"Announcement sent")
+  return smoothSend(id,"Announcement sent")
 
  }
 
