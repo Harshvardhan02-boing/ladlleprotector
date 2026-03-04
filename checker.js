@@ -1,24 +1,30 @@
 const fs = require("fs")
 const axios = require("axios")
 
-function getCookie(userId){
+function loadCookies(userId){
 
  const file = `./cookies/${userId}.json`
 
  if(!fs.existsSync(file)) return null
 
- let raw = fs.readFileSync(file,"utf8").trim()
-
  try{
-  const obj = JSON.parse(raw)
-  return obj.cookie || null
+
+  const raw = fs.readFileSync(file,"utf8").trim()
+
+  try{
+   const obj = JSON.parse(raw)
+   return Object.entries(obj).map(([k,v])=>`${k}=${v}`).join("; ")
+  }catch{
+   return raw
+  }
+
  }catch{
-  return raw
+  return null
  }
 
 }
 
-function headers(cookie){
+function getHeaders(cookie){
 
  return {
   "accept":"application/json",
@@ -44,7 +50,7 @@ async function applyVoucher(code,headers){
    },
    {
     headers:headers,
-    timeout:20000
+    timeout:45000
    }
   )
 
@@ -52,8 +58,7 @@ async function applyVoucher(code,headers){
 
  }catch(e){
 
-  if(e.response)
-   return e.response.data
+  if(e.response) return e.response.data
 
   return null
 
@@ -73,7 +78,7 @@ async function resetVoucher(code,headers){
    },
    {
     headers:headers,
-    timeout:15000
+    timeout:20000
    }
   )
 
@@ -81,54 +86,44 @@ async function resetVoucher(code,headers){
 
 }
 
-function analyzeResponse(res){
+function isApplicable(data){
 
- if(!res) return "invalid"
+ if(!data) return false
 
- if(res.errorMessage){
+ if(data.errorMessage){
 
-  const errors = res.errorMessage.errors || []
+  const errors = data.errorMessage.errors || []
 
   for(const err of errors){
 
    const msg = (err.message || "").toLowerCase()
 
-   if(msg.includes("already"))
-    return "REDEEMED"
-
    if(msg.includes("not applicable"))
-    return "invalid"
-
-   if(msg.includes("invalid"))
-    return "invalid"
+    return false
 
   }
 
  }
 
- if(!res.errorMessage)
-  return "VALID"
-
- return "invalid"
+ return !data.errorMessage
 
 }
 
 async function checkCoupon(code,userId){
 
- const cookie = getCookie(userId)
+ const cookie = loadCookies(userId)
 
- if(!cookie)
-  return "nocookie"
+ if(!cookie) return "nocookie"
 
- const h = headers(cookie)
+ const headers = getHeaders(cookie)
 
- const res = await applyVoucher(code,h)
+ const response = await applyVoucher(code,headers)
 
- const status = analyzeResponse(res)
+ const valid = isApplicable(response)
 
- await resetVoucher(code,h)
+ await resetVoucher(code,headers)
 
- return status
+ return valid ? "VALID" : "invalid"
 
 }
 
