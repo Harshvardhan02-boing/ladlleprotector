@@ -1,0 +1,12 @@
+{
+  "name": "coupon-bot",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {
+    "start": "node main.js"
+  },
+  "dependencies": {
+    "node-telegram-bot-api": "^0.64.0",
+    "fs-extra": "^11.2.0"
+  }
+}
