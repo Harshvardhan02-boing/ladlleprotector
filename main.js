@@ -2,15 +2,12 @@ process.env.NTBA_FIX_319 = 1
 
 const TelegramBot = require("node-telegram-bot-api")
 const fs = require("fs-extra")
-const axios = require("axios")
 const {checkCoupon} = require("./checker")
 
 const TOKEN = process.env.BOT_TOKEN || "8620466387:AAEuJFQSLm8KIvxaeVP8W6A9pA0BDyj7vXU"
 const ADMIN_ID = 2090180877
 
-const bot = new TelegramBot(TOKEN,{
- polling:{autoStart:true,interval:300,params:{timeout:10}}
-})
+const bot = new TelegramBot(TOKEN,{polling:true})
 
 fs.ensureDirSync("./vouchers")
 fs.ensureDirSync("./cookies")
@@ -20,36 +17,6 @@ if(!fs.existsSync("users.json"))
 
 let mode={}
 let valueMap={}
-let cooldown={}
-
-bot.setMyCommands([
- {command:"start",description:"Open menu"}
-])
-
-function sleep(ms){
- return new Promise(r=>setTimeout(r,ms))
-}
-
-async function smoothSend(id,text,opt={}){
-
- await bot.sendChatAction(id,"typing")
- await sleep(250)
-
- return bot.sendMessage(id,text,opt)
-
-}
-
-function guard(id){
-
- const now=Date.now()
-
- if(cooldown[id] && now-cooldown[id]<1000)
-  return true
-
- cooldown[id]=now
- return false
-
-}
 
 function users(){
  return fs.readJsonSync("users.json")
@@ -87,14 +54,12 @@ function load(id){
  return fs.readJsonSync(file(id))
 }
 
-function saveAtomic(id,data){
+function save(id,data){
+ fs.writeJsonSync(file(id),data)
+}
 
- const f=file(id)
- const tmp=f+".tmp"
-
- fs.writeJsonSync(tmp,data)
- fs.renameSync(tmp,f)
-
+function cookieExists(id){
+ return fs.existsSync(`./cookies/${id}.json`)
 }
 
 function indiaTime(){
@@ -131,10 +96,10 @@ function categoryMenu(){
  return {
   reply_markup:{
    inline_keyboard:[
-    [{text:"💵 ₹500",callback_data:"val_500"}],
-    [{text:"💵 ₹1000",callback_data:"val_1000"}],
-    [{text:"💵 ₹2000",callback_data:"val_2000"}],
-    [{text:"💵 ₹4000",callback_data:"val_4000"}],
+    [{text:"💰 ₹500",callback_data:"val_500"}],
+    [{text:"💰 ₹1000",callback_data:"val_1000"}],
+    [{text:"💰 ₹2000",callback_data:"val_2000"}],
+    [{text:"💰 ₹4000",callback_data:"val_4000"}],
     [{text:"⬅ Back",callback_data:"menu"}]
    ]
   }
@@ -148,45 +113,103 @@ bot.onText(/\/start/,async msg=>{
 
  register(id)
 
- await smoothSend(
+ bot.sendMessage(
   id,
 `💳 *Coupon Manager*
 
-Manage and protect your coupons safely.
+Manage and protect your coupons.
 
-Choose an option below.`,
+👇 Select an option`,
  {parse_mode:"Markdown",...mainMenu(id)}
  )
 
 })
-
-/* ---------------- BUTTON HANDLER (FIXED) ---------------- */
 
 bot.on("callback_query",async query=>{
 
  const id=query.from.id
  const data=query.data
 
- if(guard(id)) return
-
  if(data==="menu")
-  return smoothSend(id,"Main Menu",mainMenu(id))
+  return bot.sendMessage(id,"Main Menu",mainMenu(id))
+
+ if(data==="cookie"){
+
+  mode[id]="cookie"
+
+  return bot.sendMessage(
+   id,
+`🍪 *Set Cookies*
+
+Before sending cookies:
+
+🛒 Add *1 or more items* to your Shein cart  
+📦 Make sure the product is *in stock*  
+🔑 Then extract cookies from your browser
+
+Paste the cookie string here.`,
+   {parse_mode:"Markdown"}
+  )
+
+ }
 
  if(data==="add"){
+
+  if(!cookieExists(id))
+   return bot.sendMessage(id,"🍪 Please set cookies first.")
+
   mode[id]="add"
-  return smoothSend(id,"Select coupon category",categoryMenu())
+
+  return bot.sendMessage(id,"Select coupon value",categoryMenu())
+
  }
 
  if(data==="retrieve"){
+
+  if(!cookieExists(id))
+   return bot.sendMessage(id,"🍪 Please set cookies first.")
+
   mode[id]="retrieve"
-  return smoothSend(id,"Select coupon category",categoryMenu())
+
+  return bot.sendMessage(id,"Select coupon value",categoryMenu())
+
+ }
+
+ if(data==="check"){
+
+  if(!cookieExists(id))
+   return bot.sendMessage(id,"🍪 Cookies required before checking coupons.")
+
+  mode[id]="check"
+
+  return bot.sendMessage(
+   id,
+`🔎 Send coupons to check
+
+Example
+
+ABC123
+XYZ999
+
+Maximum 50 coupons`
+  )
+
+ }
+
+ if(data==="status"){
+
+  if(!cookieExists(id))
+   return bot.sendMessage(id,"❌ No cookies saved")
+
+  return bot.sendMessage(id,"✅ Cookies detected and active")
+
  }
 
  if(data==="stats"){
 
   const d=load(id)
 
-  return smoothSend(
+  return bot.sendMessage(
    id,
 `📊 Your Coupons
 
@@ -198,70 +221,32 @@ bot.on("callback_query",async query=>{
 
  }
 
- if(data==="check"){
-  mode[id]="check"
-
-  return smoothSend(
-   id,
-`🔎 Send coupons to check
-
-Example
-
-ABC123
-XYZ999
-
-Maximum 50 coupons`
-  )
- }
-
- if(data==="cookie"){
-  mode[id]="cookie"
-  return smoothSend(id,"🍪 Paste your Shein cookies")
- }
-
- if(data==="status"){
-
-  const f=`./cookies/${id}.json`
-
-  if(!fs.existsSync(f))
-   return smoothSend(id,"❌ No cookies set")
-
-  return smoothSend(id,"✅ Cookies detected")
- }
-
- if(data==="announce" && id===ADMIN_ID){
-
-  mode[id]="announce"
-  return smoothSend(id,"Send announcement message")
- }
-
  if(data.startsWith("val_")){
 
   const value=data.split("_")[1]
+
   valueMap[id]=value
 
   if(mode[id]==="add")
-   return smoothSend(id,"Send coupon code")
+   return bot.sendMessage(id,"Send coupon code")
 
   if(mode[id]==="retrieve"){
 
    const d=load(id)
 
    if(d[value].length===0)
-    return smoothSend(id,"No coupons available")
+    return bot.sendMessage(id,"No coupons available")
 
    const code=d[value].shift()
 
-   saveAtomic(id,d)
+   save(id,d)
 
-   return smoothSend(id,`🎟 Coupon\n${code}`)
+   return bot.sendMessage(id,`🎟 Coupon\n${code}`)
   }
 
  }
 
 })
-
-/* ---------------- MESSAGE HANDLER ---------------- */
 
 bot.on("message",async msg=>{
 
@@ -273,7 +258,21 @@ bot.on("message",async msg=>{
 
  const m=mode[id]
 
+ if(m==="cookie"){
+
+  fs.writeFileSync(
+   `./cookies/${id}.json`,
+   JSON.stringify({cookie:text.trim()})
+  )
+
+  return bot.sendMessage(id,"🍪 Cookies saved successfully")
+
+ }
+
  if(m==="add"){
+
+  if(!cookieExists(id))
+   return bot.sendMessage(id,"🍪 Cookies missing. Cannot store coupon.")
 
   const value=valueMap[id]
   const d=load(id)
@@ -281,29 +280,33 @@ bot.on("message",async msg=>{
   const code=text.trim()
 
   if(d[value].includes(code))
-   return smoothSend(id,"Coupon already exists")
+   return bot.sendMessage(id,"⚠ Coupon already stored")
 
   d[value].push(code)
 
-  saveAtomic(id,d)
+  save(id,d)
 
-  return smoothSend(id,"✅ Coupon added")
+  return bot.sendMessage(id,"✅ Coupon added")
 
  }
 
  if(m==="check"){
 
+  if(!cookieExists(id))
+   return bot.sendMessage(id,"🍪 Cookies required")
+
   const raw=text.replace(/,/g,"\n").split("\n")
 
   const coupons=raw.map(x=>x.trim()).filter(x=>x).slice(0,50)
 
-  await smoothSend(id,`🔍 Checking ${coupons.length} coupons...`)
+  bot.sendMessage(id,`🔍 Checking ${coupons.length} coupons...`)
 
   const results=await Promise.all(
    coupons.map(c=>checkCoupon(c,id))
   )
 
-  await sleep(2000)
+  if(results.includes("nocookie"))
+   return bot.sendMessage(id,"🍪 Cookies missing. Please set them again.")
 
   let out=[]
 
@@ -319,7 +322,7 @@ bot.on("message",async msg=>{
 
    if(results[i]==="REDEEMED"){
     emoji="🟡"
-    status="REDEEMED"
+    status="ALREADY USED"
    }
 
    out.push(`${emoji} ${coupons[i]}
@@ -330,105 +333,14 @@ Time : ${indiaTime()}
 ────────────`)
   }
 
-  return smoothSend(
+  bot.sendMessage(
    id,
-   "📊 Check Results\n\n"+out.join("\n")
+   "📊 *Check Results*\n\n"+out.join("\n"),
+   {parse_mode:"Markdown"}
   )
-
- }
-
- if(m==="cookie"){
-
-  fs.writeFileSync(
-   `./cookies/${id}.json`,
-   JSON.stringify({cookie:text.trim(),created:Date.now()})
-  )
-
-  return smoothSend(id,"🍪 Cookies saved successfully")
- }
-
- if(m==="announce" && id===ADMIN_ID){
-
-  const u=users()
-
-  for(const user of u)
-   bot.sendMessage(user,"📢 "+text).catch(()=>{})
-
-  mode[id]=null
-
-  return smoothSend(id,"Announcement sent")
 
  }
 
 })
 
-/* ---------------- PROTECTOR ---------------- */
-
-async function protectUserCoupons(userId){
-
- const cookieFile=`./cookies/${userId}.json`
-
- if(!fs.existsSync(cookieFile)) return
-
- const cookie=JSON.parse(fs.readFileSync(cookieFile)).cookie
-
- const data=load(userId)
-
- const coupons=[
-  ...data["500"],
-  ...data["1000"],
-  ...data["2000"],
-  ...data["4000"]
- ]
-
- for(const code of coupons){
-
-  try{
-
-   await axios.post(
-    "https://www.sheinindia.in/api/cart/apply-voucher",
-    {voucherId:code,device:{client_type:"web"}},
-    {headers:{
-     "accept":"application/json",
-     "content-type":"application/json",
-     "origin":"https://www.sheinindia.in",
-     "referer":"https://www.sheinindia.in/cart",
-     "user-agent":"Mozilla/5.0",
-     "x-tenant-id":"SHEIN",
-     "cookie":cookie
-    }}
-   )
-
-   await axios.post(
-    "https://www.sheinindia.in/api/cart/reset-voucher",
-    {voucherId:code,device:{client_type:"web"}},
-    {headers:{
-     "accept":"application/json",
-     "content-type":"application/json",
-     "origin":"https://www.sheinindia.in",
-     "referer":"https://www.sheinindia.in/cart",
-     "user-agent":"Mozilla/5.0",
-     "x-tenant-id":"SHEIN",
-     "cookie":cookie
-    }}
-   )
-
-  }catch{}
-
- }
-
-}
-
-setInterval(async()=>{
-
- const u=users()
-
- for(const user of u){
-  try{
-   await protectUserCoupons(user)
-  }catch{}
- }
-
-},30000)
-
-console.log("Bot running with protector")
+console.log("Bot running")
