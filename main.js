@@ -33,7 +33,7 @@ function sleep(ms){
 async function smoothSend(id,text,opt={}){
 
  await bot.sendChatAction(id,"typing")
- await sleep(350)
+ await sleep(250)
 
  return bot.sendMessage(id,text,opt)
 
@@ -43,7 +43,7 @@ function guard(id){
 
  const now=Date.now()
 
- if(cooldown[id] && now-cooldown[id]<1200)
+ if(cooldown[id] && now-cooldown[id]<1000)
   return true
 
  cooldown[id]=now
@@ -71,14 +71,12 @@ function file(id){
  const f=`./vouchers/${id}.json`
 
  if(!fs.existsSync(f)){
-
   fs.writeJsonSync(f,{
    "500":[],
    "1000":[],
    "2000":[],
    "4000":[]
   })
-
  }
 
  return f
@@ -154,42 +152,116 @@ bot.onText(/\/start/,async msg=>{
   id,
 `💳 *Coupon Manager*
 
-Manage and protect your coupons.
+Manage and protect your coupons safely.
 
-Select an option below.`,
+Choose an option below.`,
  {parse_mode:"Markdown",...mainMenu(id)}
  )
 
 })
 
-async function batchCheck(coupons,id){
+/* ---------------- BUTTON HANDLER (FIXED) ---------------- */
 
- const results=[]
+bot.on("callback_query",async query=>{
 
- const batchSize=5
+ const id=query.from.id
+ const data=query.data
 
- for(let i=0;i<coupons.length;i+=batchSize){
+ if(guard(id)) return
 
-  const batch=coupons.slice(i,i+batchSize)
+ if(data==="menu")
+  return smoothSend(id,"Main Menu",mainMenu(id))
 
-  const res=await Promise.all(
+ if(data==="add"){
+  mode[id]="add"
+  return smoothSend(id,"Select coupon category",categoryMenu())
+ }
 
-   batch.map(async code=>{
+ if(data==="retrieve"){
+  mode[id]="retrieve"
+  return smoothSend(id,"Select coupon category",categoryMenu())
+ }
 
-    const r=await checkCoupon(code,id)
-    return {code,result:r}
+ if(data==="stats"){
 
-   })
+  const d=load(id)
 
+  return smoothSend(
+   id,
+`📊 Your Coupons
+
+₹500 : ${d["500"].length}
+₹1000 : ${d["1000"].length}
+₹2000 : ${d["2000"].length}
+₹4000 : ${d["4000"].length}`
   )
-
-  results.push(...res)
 
  }
 
- return results
+ if(data==="check"){
+  mode[id]="check"
 
-}
+  return smoothSend(
+   id,
+`🔎 Send coupons to check
+
+Example
+
+ABC123
+XYZ999
+
+Maximum 50 coupons`
+  )
+ }
+
+ if(data==="cookie"){
+  mode[id]="cookie"
+  return smoothSend(id,"🍪 Paste your Shein cookies")
+ }
+
+ if(data==="status"){
+
+  const f=`./cookies/${id}.json`
+
+  if(!fs.existsSync(f))
+   return smoothSend(id,"❌ No cookies set")
+
+  return smoothSend(id,"✅ Cookies detected")
+ }
+
+ if(data==="announce" && id===ADMIN_ID){
+
+  mode[id]="announce"
+  return smoothSend(id,"Send announcement message")
+ }
+
+ if(data.startsWith("val_")){
+
+  const value=data.split("_")[1]
+  valueMap[id]=value
+
+  if(mode[id]==="add")
+   return smoothSend(id,"Send coupon code")
+
+  if(mode[id]==="retrieve"){
+
+   const d=load(id)
+
+   if(d[value].length===0)
+    return smoothSend(id,"No coupons available")
+
+   const code=d[value].shift()
+
+   saveAtomic(id,d)
+
+   return smoothSend(id,`🎟 Coupon\n${code}`)
+  }
+
+ }
+
+})
+
+/* ---------------- MESSAGE HANDLER ---------------- */
 
 bot.on("message",async msg=>{
 
@@ -201,58 +273,96 @@ bot.on("message",async msg=>{
 
  const m=mode[id]
 
+ if(m==="add"){
+
+  const value=valueMap[id]
+  const d=load(id)
+
+  const code=text.trim()
+
+  if(d[value].includes(code))
+   return smoothSend(id,"Coupon already exists")
+
+  d[value].push(code)
+
+  saveAtomic(id,d)
+
+  return smoothSend(id,"✅ Coupon added")
+
+ }
+
  if(m==="check"){
 
   const raw=text.replace(/,/g,"\n").split("\n")
 
   const coupons=raw.map(x=>x.trim()).filter(x=>x).slice(0,50)
 
-  await smoothSend(
-   id,
-`🔍 Checking ${coupons.length} coupon${coupons.length>1?"s":""}...`
-  )
+  await smoothSend(id,`🔍 Checking ${coupons.length} coupons...`)
 
-  const data=await batchCheck(coupons,id)
+  const results=await Promise.all(
+   coupons.map(c=>checkCoupon(c,id))
+  )
 
   await sleep(2000)
 
   let out=[]
 
-  for(const r of data){
+  for(let i=0;i<coupons.length;i++){
 
    let emoji="🔴"
    let status="INVALID"
 
-   if(r.result==="VALID"){
+   if(results[i]==="VALID"){
     emoji="🟢"
     status="VALID"
    }
 
-   if(r.result==="REDEEMED"){
+   if(results[i]==="REDEEMED"){
     emoji="🟡"
     status="REDEEMED"
    }
 
-   out.push(
-`${emoji} ${r.code}
+   out.push(`${emoji} ${coupons[i]}
 
 Status : ${status}
-Time   : ${indiaTime()}
+Time : ${indiaTime()}
 
-────────────`
-   )
-
+────────────`)
   }
 
   return smoothSend(
    id,
-   "📊 *Check Results*\n\n"+out.join("\n"),
-   {parse_mode:"Markdown"}
+   "📊 Check Results\n\n"+out.join("\n")
   )
 
  }
 
+ if(m==="cookie"){
+
+  fs.writeFileSync(
+   `./cookies/${id}.json`,
+   JSON.stringify({cookie:text.trim(),created:Date.now()})
+  )
+
+  return smoothSend(id,"🍪 Cookies saved successfully")
+ }
+
+ if(m==="announce" && id===ADMIN_ID){
+
+  const u=users()
+
+  for(const user of u)
+   bot.sendMessage(user,"📢 "+text).catch(()=>{})
+
+  mode[id]=null
+
+  return smoothSend(id,"Announcement sent")
+
+ }
+
 })
+
+/* ---------------- PROTECTOR ---------------- */
 
 async function protectUserCoupons(userId){
 
@@ -265,12 +375,10 @@ async function protectUserCoupons(userId){
  const data=load(userId)
 
  const coupons=[
-
   ...data["500"],
   ...data["1000"],
   ...data["2000"],
   ...data["4000"]
-
  ]
 
  for(const code of coupons){
@@ -305,39 +413,20 @@ async function protectUserCoupons(userId){
     }}
    )
 
-  }catch(e){
-
-   if(e.response && e.response.data?.errorCode==="RX1"){
-
-    bot.sendMessage(
-     userId,
-`🚨🚨 EMERGENCY 🚨🚨
-
-Your cookies stopped working.
-
-⚠ Coupons are no longer protected.
-
-Please update cookies immediately.`
-    )
-
-   }
-
-  }
+  }catch{}
 
  }
 
 }
 
-setInterval(async ()=>{
+setInterval(async()=>{
 
  const u=users()
 
  for(const user of u){
-
   try{
    await protectUserCoupons(user)
   }catch{}
-
  }
 
 },30000)
