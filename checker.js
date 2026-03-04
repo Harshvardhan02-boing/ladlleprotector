@@ -1,26 +1,19 @@
 const fs = require("fs")
 const axios = require("axios")
 
-function getCookie(userId){
+function loadCookie(userId){
 
  const file = `./cookies/${userId}.json`
-
  if(!fs.existsSync(file)) return null
 
+ const raw = fs.readFileSync(file,"utf8")
+
  try{
-
-  const raw = fs.readFileSync(file,"utf8")
   const data = JSON.parse(raw)
-
   if(data.cookie) return data.cookie
+ }catch{}
 
-  return raw
-
- }catch{
-
-  return fs.readFileSync(file,"utf8").trim()
-
- }
+ return raw.trim()
 
 }
 
@@ -38,20 +31,14 @@ function headers(cookie){
 
 }
 
-async function applyVoucher(code,headers){
+async function applyVoucher(code,cookie){
 
  try{
 
   const res = await axios.post(
    "https://www.sheinindia.in/api/cart/apply-voucher",
-   {
-    voucherId:code,
-    device:{client_type:"web"}
-   },
-   {
-    headers:headers,
-    timeout:12000
-   }
+   {voucherId:code,device:{client_type:"web"}},
+   {headers:headers(cookie),timeout:20000}
   )
 
   return res.data
@@ -59,44 +46,29 @@ async function applyVoucher(code,headers){
  }catch(e){
 
   if(e.response) return e.response.data
-
-  return {networkError:true}
+  return null
 
  }
 
 }
 
-async function resetVoucher(code,headers){
+async function resetVoucher(code,cookie){
 
  try{
 
   await axios.post(
    "https://www.sheinindia.in/api/cart/reset-voucher",
-   {
-    voucherId:code,
-    device:{client_type:"web"}
-   },
-   {
-    headers:headers,
-    timeout:10000
-   }
+   {voucherId:code,device:{client_type:"web"}},
+   {headers:headers(cookie),timeout:15000}
   )
 
  }catch{}
 
 }
 
-function analyzeResponse(data){
+function isApplicable(data){
 
- if(!data) return "ERROR"
-
- if(data.networkError) return "ERROR"
-
- if(data.errorCode === "RX1") return "COOKIE_EXPIRED"
-
- if(data.success === true) return "VALID"
-
- if(data.voucherInfo) return "VALID"
+ if(!data) return false
 
  if(data.errorMessage){
 
@@ -104,41 +76,35 @@ function analyzeResponse(data){
 
   for(const err of errors){
 
-   const msg = (err.message || "").toLowerCase()
+   if(err.type==="VoucherOperationError"){
 
-   if(msg.includes("already") || msg.includes("redeemed"))
-    return "REDEEMED"
+    const msg = (err.message || "").toLowerCase()
 
-   if(msg.includes("not applicable"))
-    return "INVALID"
+    if(msg.includes("not applicable"))
+     return false
 
-   if(msg.includes("expired"))
-    return "INVALID"
+   }
 
   }
 
  }
 
- return "INVALID"
+ return true
 
 }
 
 async function checkCoupon(code,userId){
 
- const cookie = getCookie(userId)
-
+ const cookie = loadCookie(userId)
  if(!cookie) return "NO_COOKIE"
 
- const h = headers(cookie)
+ const res = await applyVoucher(code,cookie)
 
- const response = await applyVoucher(code,h)
+ const valid = isApplicable(res)
 
- const result = analyzeResponse(response)
+ await resetVoucher(code,cookie)
 
- if(result === "VALID")
-  await resetVoucher(code,h)
-
- return result
+ return valid ? "VALID" : "INVALID"
 
 }
 
