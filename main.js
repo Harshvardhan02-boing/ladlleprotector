@@ -2,7 +2,7 @@ const TelegramBot = require("node-telegram-bot-api")
 const fs = require("fs-extra")
 const {checkCoupon} = require("./checker")
 
-const TOKEN = "8620466387:AAEuJFQSLm8KIvxaeVP8W6A9pA0BDyj7vXU"
+const TOKEN = process.env.BOT_TOKEN || "8620466387:AAEuJFQSLm8KIvxaeVP8W6A9pA0BDyj7vXU"
 const ADMIN_ID = 2090180877
 
 const bot = new TelegramBot(TOKEN,{polling:true})
@@ -77,18 +77,49 @@ function count(id){
  }
 }
 
-function menu(){
+function mainMenu(){
 
  return{
+  parse_mode:"Markdown",
   reply_markup:{
-   keyboard:[
-    ["➕ Add Coupon","📤 Retrieve"],
-    ["📊 My Coupons","🔎 Check"],
-    ["🍪 Set Cookies","🔍 Cookie Status"]
-   ],
-   resize_keyboard:true
+   inline_keyboard:[
+
+    [{text:"➕ Add Coupon",callback_data:"add"}],
+    [{text:"📤 Retrieve Coupon",callback_data:"retrieve"}],
+    [{text:"📊 My Coupons",callback_data:"stats"}],
+    [{text:"🔎 Check Coupons",callback_data:"check"}],
+    [{text:"🍪 Set Cookies",callback_data:"setcookie"}],
+    [{text:"🔍 Cookie Status",callback_data:"cookiestatus"}]
+
+   ]
   }
  }
+}
+
+function sendValueMenu(id){
+
+ const c=count(id)
+
+ bot.sendMessage(
+  id,
+`🎟 Coupon Categories
+━━━━━━━━━━━━━━━━━━
+
+Select a coupon category`,
+{
+ parse_mode:"Markdown",
+ reply_markup:{
+  inline_keyboard:[
+
+   [{text:`💰 ₹500   • Stock: ${c["500"]}`,callback_data:"value_500"}],
+   [{text:`💰 ₹1000  • Stock: ${c["1000"]}`,callback_data:"value_1000"}],
+   [{text:`💰 ₹2000  • Stock: ${c["2000"]}`,callback_data:"value_2000"}],
+   [{text:`💰 ₹4000  • Stock: ${c["4000"]}`,callback_data:"value_4000"}],
+   [{text:"⬅ Back",callback_data:"menu"}]
+
+  ]
+ }
+})
 }
 
 bot.onText(/\/start/,msg=>{
@@ -97,86 +128,149 @@ bot.onText(/\/start/,msg=>{
 
  register(id)
 
- bot.sendMessage(id,"💳 Coupon Manager",menu())
+ bot.sendMessage(
+  id,
+`💳 *Coupon Manager*
+
+Manage your coupons easily.`,
+ mainMenu()
+ )
 
 })
 
-bot.onText(/➕ Add Coupon/,msg=>{
+bot.on("callback_query",async q=>{
 
- const id=msg.from.id
+ const id=q.from.id
+ const data=q.data
 
- userMode[id]="add"
+ if(data==="menu")
+  return bot.sendMessage(id,"Main Menu",mainMenu())
 
- const c=count(id)
+ if(data==="add"){
 
- bot.sendMessage(id,
-`Select value
+  userMode[id]="add"
 
-₹500 (${c["500"]})
-₹1000 (${c["1000"]})
-₹2000 (${c["2000"]})
-₹4000 (${c["4000"]})`)
-})
+  sendValueMenu(id)
 
-bot.onText(/📤 Retrieve/,msg=>{
+ }
 
- const id=msg.from.id
+ if(data==="retrieve"){
 
- userMode[id]="retrieve"
+  userMode[id]="retrieve"
 
- const c=count(id)
+  sendValueMenu(id)
 
- bot.sendMessage(id,
-`Select value
+ }
 
-₹500 (${c["500"]})
-₹1000 (${c["1000"]})
-₹2000 (${c["2000"]})
-₹4000 (${c["4000"]})`)
-})
+ if(data==="stats"){
 
-bot.onText(/📊 My Coupons/,msg=>{
+  const c=count(id)
 
- const id=msg.from.id
+  bot.sendMessage(
+   id,
+`📊 Coupon Inventory
+━━━━━━━━━━━━━━━━━━
 
- const c=count(id)
+💰 ₹500   → ${c["500"]} coupons
+💰 ₹1000  → ${c["1000"]} coupons
+💰 ₹2000  → ${c["2000"]} coupons
+💰 ₹4000  → ${c["4000"]} coupons`,
+{parse_mode:"Markdown"}
+  )
 
- bot.sendMessage(id,
-`Your Coupons
+ }
 
-₹500 : ${c["500"]}
-₹1000 : ${c["1000"]}
-₹2000 : ${c["2000"]}
-₹4000 : ${c["4000"]}`)
-})
+ if(data==="check"){
 
-bot.onText(/🔎 Check/,msg=>{
+  userMode[id]="check"
 
- userMode[msg.from.id]="check"
+  bot.sendMessage(
+   id,
+`🔎 Coupon Checker
+━━━━━━━━━━━━━━
 
- bot.sendMessage(msg.from.id,
-`Send coupons
+Send coupons to verify.
 
-Max 50`)
-})
+Example:
 
-bot.onText(/🍪 Set Cookies/,msg=>{
+ABC123
+XYZ456
 
- userMode[msg.from.id]="cookie"
+⚠ Maximum 50 coupons`,
+{parse_mode:"Markdown"}
+  )
 
- bot.sendMessage(msg.from.id,"Paste cookies")
-})
+ }
 
-bot.onText(/🔍 Cookie Status/,async msg=>{
+ if(data==="setcookie"){
 
- const id=msg.from.id
+  userMode[id]="cookie"
 
- const r=await checkCoupon("TESTCODE",id)
+  bot.sendMessage(
+   id,
+`🍪 Cookie Setup
+━━━━━━━━━━━━━━
 
- if(r==="nocookie")
-  return bot.sendMessage(id,"❌ No cookies")
+Paste your *Shein cookies*
 
- bot.sendMessage(id,"✅ Cookie file found")
+Accepted formats:
+
+1️⃣ JSON cookie
+
+{
+ "session":"abc"
+}
+
+2️⃣ Header cookie
+
+session=abc; token=xyz`,
+{parse_mode:"Markdown"}
+  )
+
+ }
+
+ if(data==="cookiestatus"){
+
+  const r=await checkCoupon("TESTCODE",id)
+
+  if(r==="nocookie")
+   return bot.sendMessage(id,"❌ No cookies saved")
+
+  bot.sendMessage(id,"✅ Cookie file detected")
+
+ }
+
+ if(data.startsWith("value_")){
+
+  const value=data.split("_")[1]
+
+  userMode[id+"_value"]=value
+
+  if(userMode[id]==="add")
+   bot.sendMessage(id,"Send coupon code")
+
+  if(userMode[id]==="retrieve"){
+
+   const d=load(id)
+
+   if(d[value].length===0)
+    return bot.sendMessage(id,"❌ No coupons available")
+
+   const code=d[value].shift()
+
+   save(id,d)
+
+   bot.sendMessage(id,
+`🎟 Coupon Retrieved
+
+\`${code}\``,
+{parse_mode:"Markdown"}
+   )
+
+  }
+
+ }
+
 })
 
 bot.on("message",async msg=>{
@@ -187,76 +281,73 @@ bot.on("message",async msg=>{
  if(!text) return
  if(text.startsWith("/")) return
 
- if(text.includes("₹")){
+ const mode=userMode[id]
 
-  const value=text.split("₹")[1].split(" ")[0]
+ if(mode==="add"){
 
-  userMode[id+"_value"]=value
+  const value=userMode[id+"_value"]
 
-  if(userMode[id]=="add")
-   bot.sendMessage(id,"Send coupon")
+  const data=load(id)
 
-  if(userMode[id]=="retrieve"){
+  const code=text.trim()
 
-   const data=load(id)
+  if(data[value].includes(code))
+   return bot.sendMessage(id,"⚠ Coupon already exists")
 
-   if(data[value].length===0)
-    return bot.sendMessage(id,"No coupons")
+  data[value].push(code)
 
-   const code=data[value].shift()
+  save(id,data)
 
-   save(id,data)
-
-   bot.sendMessage(id,"`"+code+"`",{parse_mode:"Markdown"})
-  }
-
-  return
-}
-
-const mode=userMode[id]
-
-if(mode==="add"){
-
- const value=userMode[id+"_value"]
- const data=load(id)
-
- const code=text.trim()
-
- if(data[value].includes(code))
-  return bot.sendMessage(id,"⚠ Duplicate")
-
- data[value].push(code)
-
- save(id,data)
-
- bot.sendMessage(id,"Coupon added")
-}
-
-if(mode==="check"){
-
- const raw=text.replace(/,/g,"\n").split("\n")
-
- const coupons=raw.map(x=>x.trim()).filter(x=>x).slice(0,50)
-
- let results=[]
-
- for(const c of coupons){
-
-  const r=await checkCoupon(c,id)
-
-  results.push("`"+c+"` : "+r)
+  bot.sendMessage(id,"✅ Coupon stored")
 
  }
 
- bot.sendMessage(id,results.join("\n"),{parse_mode:"Markdown"})
-}
+ if(mode==="check"){
 
-if(mode==="cookie"){
+  const raw=text.replace(/,/g,"\n").split("\n")
 
- fs.writeFileSync(`./cookies/${id}.json`,text)
+  const coupons=raw.map(x=>x.trim()).filter(x=>x).slice(0,50)
 
- bot.sendMessage(id,"Cookies saved")
-}
+  let results=[]
+
+  for(const c of coupons){
+
+   const r=await checkCoupon(c,id)
+
+   results.push("`"+c+"` : "+r)
+
+  }
+
+  bot.sendMessage(id,results.join("\n"),{parse_mode:"Markdown"})
+
+ }
+
+ if(mode==="cookie"){
+
+  let cookie=text.trim()
+
+  let valid=false
+
+  if(cookie.includes("=") && cookie.includes(";"))
+   valid=true
+
+  try{
+   JSON.parse(cookie)
+   valid=true
+  }catch{}
+
+  if(!valid){
+
+   bot.sendMessage(id,"❌ Invalid cookie format")
+
+   return
+  }
+
+  fs.writeFileSync(`./cookies/${id}.json`,cookie)
+
+  bot.sendMessage(id,"✅ Cookies saved successfully")
+
+ }
 
 })
 
