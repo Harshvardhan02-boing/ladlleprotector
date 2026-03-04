@@ -1,16 +1,12 @@
 const axios = require('axios');
 const fs = require('fs-extra');
 
-/**
- * Applies a coupon to the user's actual cart, checks validity, and resets it.
- */
 async function checkCoupon(voucherCode, userId) {
     const cookiePath = `./cookies/${userId}.json`;
     if (!fs.existsSync(cookiePath)) return "nocookie";
 
     const { cookie } = fs.readJsonSync(cookiePath);
     
-    // Exact headers from the Python source for consistency
     const headers = {
         "accept": "application/json",
         "accept-language": "en-US,en;q=0.9",
@@ -28,25 +24,19 @@ async function checkCoupon(voucherCode, userId) {
     };
 
     try {
-        // Step 1: Attempt to Apply the coupon to the real cart
-        const applyRes = await axios.post("https://www.sheinindia.in/api/cart/apply-voucher", payload, { 
+        // 1. Try to Apply to real cart
+        const response = await axios.post("https://www.sheinindia.in/api/cart/apply-voucher", payload, { 
             headers, 
-            timeout: 20000 
+            timeout: 15000 
         });
 
-        const data = applyRes.data;
-
-        // Step 2: Check for error messages in the response
-        if (data.errorMessage) {
-            const errorMsg = JSON.stringify(data.errorMessage).toLowerCase();
-            
-            // Checking for specific invalidation reasons
-            if (errorMsg.includes("used") || errorMsg.includes("redeemed")) return "REDEEMED";
-            if (errorMsg.includes("not applicable")) return "NOT_APPLICABLE"; // e.g., cart value too low
+        if (response.data.errorMessage) {
+            const msg = JSON.stringify(response.data.errorMessage).toLowerCase();
+            if (msg.includes("used") || msg.includes("redeemed")) return "REDEEMED";
             return "INVALID";
         }
 
-        // Step 3: If valid, Reset the voucher immediately to "save" it
+        // 2. If valid, Reset immediately to "save" the coupon
         await axios.post("https://www.sheinindia.in/api/cart/reset-voucher", payload, { 
             headers, 
             timeout: 10000 
@@ -55,7 +45,6 @@ async function checkCoupon(voucherCode, userId) {
         return "VALID";
 
     } catch (error) {
-        // Handle IP blocks or network timeouts
         if (error.response && error.response.status === 403) return "BLOCKED";
         return "ERROR";
     }
