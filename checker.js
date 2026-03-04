@@ -11,10 +11,17 @@ function getCookie(userId){
 
  try{
   const obj = JSON.parse(raw)
-  return Object.entries(obj).map(([k,v])=>`${k}=${v}`).join("; ")
+
+  if(obj.cookie) return obj.cookie
+
+  return Object.entries(obj)
+   .map(([k,v])=>`${k}=${v}`)
+   .join("; ")
+
  }catch{
   return raw
  }
+
 }
 
 function headers(cookie){
@@ -28,6 +35,7 @@ function headers(cookie){
   "x-tenant-id":"SHEIN",
   "cookie":cookie
  }
+
 }
 
 async function applyVoucher(code,headers){
@@ -46,8 +54,10 @@ async function applyVoucher(code,headers){
 
   if(e.response) return e.response.data
 
-  return null
+  return {networkError:true}
+
  }
+
 }
 
 async function resetVoucher(code,headers){
@@ -61,11 +71,16 @@ async function resetVoucher(code,headers){
   )
 
  }catch{}
+
 }
 
-function isValid(response){
+function analyzeResponse(response){
 
- if(!response) return false
+ if(!response) return "ERROR"
+
+ if(response.networkError) return "ERROR"
+
+ if(response.errorCode === "RX1") return "COOKIE_EXPIRED"
 
  if(response.errorMessage){
 
@@ -73,31 +88,42 @@ function isValid(response){
 
   for(const err of errors){
 
-   if(err.message && err.message.toLowerCase().includes("not applicable"))
-    return false
+   const msg = (err.message || "").toLowerCase()
+
+   if(msg.includes("not applicable"))
+    return "INVALID"
+
+   if(msg.includes("already used") || msg.includes("redeemed"))
+    return "REDEEMED"
+
+   if(msg.includes("login") || msg.includes("session"))
+    return "COOKIE_EXPIRED"
 
   }
 
  }
 
- return !response.errorMessage
+ return "VALID"
+
 }
 
 async function checkCoupon(code,userId){
 
  const cookie = getCookie(userId)
 
- if(!cookie) return "nocookie"
+ if(!cookie) return "NO_COOKIE"
 
  const h = headers(cookie)
 
- const data = await applyVoucher(code,h)
+ const response = await applyVoucher(code,h)
 
- const valid = isValid(data)
+ const result = analyzeResponse(response)
 
- await resetVoucher(code,h)
+ if(result==="VALID")
+  await resetVoucher(code,h)
 
- return valid ? "VALID" : "invalid"
+ return result
+
 }
 
 module.exports = {checkCoupon}
