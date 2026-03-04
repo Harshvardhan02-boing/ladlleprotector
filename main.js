@@ -2,17 +2,13 @@ process.env.NTBA_FIX_319 = 1
 
 const TelegramBot = require("node-telegram-bot-api")
 const fs = require("fs-extra")
-const { checkCoupon } = require("./checker")
+const {checkCoupon} = require("./checker")
 
 const TOKEN = process.env.BOT_TOKEN || "8620466387:AAEuJFQSLm8KIvxaeVP8W6A9pA0BDyj7vXU"
 const ADMIN_ID = 2090180877
 
 const bot = new TelegramBot(TOKEN,{
- polling:{
-  autoStart:true,
-  interval:300,
-  params:{timeout:10}
- }
+ polling:{autoStart:true,interval:300,params:{timeout:10}}
 })
 
 fs.ensureDirSync("./vouchers")
@@ -26,10 +22,15 @@ let valueMap={}
 let cooldown={}
 
 function guard(id){
- const now=Date.now()
- if(cooldown[id] && now-cooldown[id]<1000) return true
+
+ const now = Date.now()
+
+ if(cooldown[id] && now-cooldown[id]<1000)
+  return true
+
  cooldown[id]=now
  return false
+
 }
 
 function users(){
@@ -41,11 +42,14 @@ function saveUsers(u){
 }
 
 function register(id){
+
  let u=users()
+
  if(!u.includes(id)){
   u.push(id)
   saveUsers(u)
  }
+
 }
 
 function file(id){
@@ -53,15 +57,18 @@ function file(id){
  const f=`./vouchers/${id}.json`
 
  if(!fs.existsSync(f)){
+
   fs.writeJsonSync(f,{
    "500":[],
    "1000":[],
    "2000":[],
    "4000":[]
   })
+
  }
 
  return f
+
 }
 
 function load(id){
@@ -78,19 +85,25 @@ function saveAtomic(id,data){
 
 }
 
-function mainMenu(){
+function mainMenu(userId){
+
+ let buttons=[
+
+  [{text:"➕ Add Coupon",callback_data:"add"}],
+  [{text:"📤 Retrieve Coupon",callback_data:"retrieve"}],
+  [{text:"📊 My Coupons",callback_data:"stats"}],
+  [{text:"🔎 Check Coupons",callback_data:"check"}],
+  [{text:"🍪 Set Cookies",callback_data:"cookie"}],
+  [{text:"🔍 Cookie Status",callback_data:"status"}]
+
+ ]
+
+ if(userId===ADMIN_ID){
+  buttons.push([{text:"📢 Announcement",callback_data:"announce"}])
+ }
 
  return{
-  reply_markup:{
-   inline_keyboard:[
-    [{text:"➕ Add Coupon",callback_data:"add"}],
-    [{text:"📤 Retrieve Coupon",callback_data:"retrieve"}],
-    [{text:"📊 My Coupons",callback_data:"stats"}],
-    [{text:"🔎 Check Coupons",callback_data:"check"}],
-    [{text:"🍪 Set Cookies",callback_data:"cookie"}],
-    [{text:"🔍 Cookie Status",callback_data:"status"}]
-   ]
-  }
+  reply_markup:{inline_keyboard:buttons}
  }
 
 }
@@ -114,12 +127,13 @@ function categoryMenu(){
 bot.onText(/\/start/,msg=>{
 
  const id=msg.from.id
+
  register(id)
 
  bot.sendMessage(
   id,
-  "💳 *Coupon Manager*\n\nChoose an option below",
-  {parse_mode:"Markdown",...mainMenu()}
+  "💳 Coupon Manager\n\nChoose an option:",
+  mainMenu(id)
  )
 
 })
@@ -134,67 +148,31 @@ bot.on("callback_query",async q=>{
 
  try{
 
- if(data==="menu"){
-  return bot.editMessageText(
-   "💳 *Coupon Manager*\n\nChoose an option below",
-   {
-    chat_id:id,
-    message_id:q.message.message_id,
-    parse_mode:"Markdown",
-    ...mainMenu()
-   }
-  )
- }
+ if(data==="menu")
+  return bot.sendMessage(id,"Main Menu",mainMenu(id))
 
  if(data==="add"){
-
   mode[id]="add"
-
-  return bot.editMessageText(
-   "➕ *Add Coupon*\n\nSelect coupon category",
-   {
-    chat_id:id,
-    message_id:q.message.message_id,
-    parse_mode:"Markdown",
-    ...categoryMenu()
-   }
-  )
-
+  return bot.sendMessage(id,"Select category",categoryMenu())
  }
 
  if(data==="retrieve"){
-
   mode[id]="retrieve"
-
-  return bot.editMessageText(
-   "📤 *Retrieve Coupon*\n\nSelect coupon category",
-   {
-    chat_id:id,
-    message_id:q.message.message_id,
-    parse_mode:"Markdown",
-    ...categoryMenu()
-   }
-  )
-
+  return bot.sendMessage(id,"Select category",categoryMenu())
  }
 
  if(data==="stats"){
 
   const d=load(id)
 
-  return bot.editMessageText(
-`📊 *Your Coupons*
+  return bot.sendMessage(
+   id,
+`📊 Your Coupons
 
-500  → ${d["500"].length}
-1000 → ${d["1000"].length}
-2000 → ${d["2000"].length}
-4000 → ${d["4000"].length}`,
-{
- chat_id:id,
- message_id:q.message.message_id,
- parse_mode:"Markdown",
- ...mainMenu()
-}
+500 : ${d["500"].length}
+1000 : ${d["1000"].length}
+2000 : ${d["2000"].length}
+4000 : ${d["4000"].length}`
   )
 
  }
@@ -203,20 +181,15 @@ bot.on("callback_query",async q=>{
 
   mode[id]="check"
 
-  return bot.editMessageText(
-`🔎 *Coupon Checker*
+  return bot.sendMessage(
+   id,
+`🔎 Send coupons to check
 
-Send coupons like this:
-
+Example:
 ABC123
-XYZ456
+XYZ999
 
-Maximum 50 coupons.`,
-{
- chat_id:id,
- message_id:q.message.message_id,
- parse_mode:"Markdown"
-}
+Max 50 coupons`
   )
 
  }
@@ -225,43 +198,31 @@ Maximum 50 coupons.`,
 
   mode[id]="cookie"
 
-  return bot.editMessageText(
-`🍪 *Set Cookies*
-
-Paste your Shein cookies.
-
-Accepted formats:
-
-JSON
-or
-
-Header string`,
-{
- chat_id:id,
- message_id:q.message.message_id,
- parse_mode:"Markdown"
-}
+  return bot.sendMessage(
+   id,
+`🍪 Paste your Shein cookies`
   )
 
  }
 
  if(data==="status"){
 
-  const r=await checkCoupon("TEST",id)
+  const cookieFile=`./cookies/${id}.json`
 
-  if(r==="nocookie"){
-   return bot.sendMessage(
-    id,
-`🍪 *No Cookies Found*
+  if(!fs.existsSync(cookieFile))
+   return bot.sendMessage(id,"❌ No cookies set")
 
-Please set cookies first.`,
-{parse_mode:"Markdown"}
-   )
-  }
+  return bot.sendMessage(id,"✅ Cookies detected")
+
+ }
+
+ if(data==="announce" && id===ADMIN_ID){
+
+  mode[id]="announce"
 
   return bot.sendMessage(
    id,
-   "✅ Cookies detected and working"
+   "📢 Send announcement message"
   )
 
  }
@@ -269,6 +230,7 @@ Please set cookies first.`,
  if(data.startsWith("val_")){
 
   const value=data.split("_")[1]
+
   valueMap[id]=value
 
   if(mode[id]==="add")
@@ -279,7 +241,7 @@ Please set cookies first.`,
    const d=load(id)
 
    if(!d[value] || d[value].length===0)
-    return bot.sendMessage(id,"❌ No coupons available")
+    return bot.sendMessage(id,"❌ No coupons")
 
    const code=d[value].shift()
 
@@ -296,10 +258,42 @@ Please set cookies first.`,
  }
 
  }catch(e){
-  console.log("CALLBACK ERROR",e)
+  console.log(e)
  }
 
 })
+
+async function batchCheck(coupons,id){
+
+ const results=[]
+ const batchSize=5
+
+ for(let i=0;i<coupons.length;i+=batchSize){
+
+  const batch=coupons.slice(i,i+batchSize)
+
+  const res=await Promise.all(
+
+   batch.map(async code=>{
+
+    if(code.length>25)
+     return {code,result:"INVALID"}
+
+    const r=await checkCoupon(code,id)
+
+    return {code,result:r}
+
+   })
+
+  )
+
+  results.push(...res)
+
+ }
+
+ return results
+
+}
 
 bot.on("message",async msg=>{
 
@@ -316,10 +310,6 @@ bot.on("message",async msg=>{
  if(m==="add"){
 
   const value=valueMap[id]
-
-  if(!value)
-   return bot.sendMessage(id,"Select category first")
-
   const d=load(id)
 
   const code=text.trim()
@@ -331,7 +321,7 @@ bot.on("message",async msg=>{
 
   saveAtomic(id,d)
 
-  return bot.sendMessage(id,"✅ Coupon stored")
+  return bot.sendMessage(id,"✅ Coupon added")
 
  }
 
@@ -341,41 +331,64 @@ bot.on("message",async msg=>{
 
   const coupons=raw.map(x=>x.trim()).filter(x=>x).slice(0,50)
 
-  const results=await Promise.all(
-   coupons.map(async c=>{
-    const r=await checkCoupon(c,id)
-    return "`"+c+"` : "+r
-   })
-  )
+  const data=await batchCheck(coupons,id)
+
+  const time=new Date().toLocaleTimeString()
+
+  let out=[]
+
+  for(const r of data){
+
+   let emoji="🔴"
+   let status="INVALID"
+
+   if(r.result==="VALID"){
+    emoji="🟢"
+    status="VALID"
+   }
+
+   if(r.result==="REDEEMED"){
+    emoji="🟡"
+    status="REDEEMED"
+   }
+
+   if(r.result==="COOKIE_EXPIRED")
+    return bot.sendMessage(
+     id,
+     "🍪 Cookies expired. Please set cookies again."
+    )
+
+   if(r.result==="NO_COOKIE")
+    return bot.sendMessage(
+     id,
+     "🍪 No cookies found. Please set cookies."
+    )
+
+   out.push(
+`${emoji} ${r.code}
+
+────────────
+Status : ${status}
+Time   : ${time}`
+   )
+
+  }
 
   return bot.sendMessage(
    id,
-   results.join("\n"),
-   {parse_mode:"Markdown"}
+   out.join("\n\n")
   )
 
  }
 
  if(m==="cookie"){
 
-  let cookie=text.trim()
-  let valid=false
+  const cookie=text.trim()
 
-  if(cookie.includes("=") && cookie.includes(";"))
-   valid=true
-
-  try{
-   JSON.parse(cookie)
-   valid=true
-  }catch{}
-
-  if(!valid)
-   return bot.sendMessage(
-    id,
-    "❌ Invalid cookie format"
-   )
-
-  fs.writeFileSync(`./cookies/${id}.json`,cookie)
+  fs.writeFileSync(
+   `./cookies/${id}.json`,
+   JSON.stringify({cookie:cookie,created:Date.now()})
+  )
 
   return bot.sendMessage(
    id,
@@ -384,23 +397,22 @@ bot.on("message",async msg=>{
 
  }
 
- }catch(e){
-  console.log("MESSAGE ERROR",e)
+ if(m==="announce" && id===ADMIN_ID){
+
+  const u=users()
+
+  for(const user of u)
+   bot.sendMessage(user,"📢 "+text).catch(()=>{})
+
+  mode[id]=null
+
+  return bot.sendMessage(id,"Announcement sent")
+
  }
 
-})
-
-bot.onText(/\/announce (.+)/,(msg,match)=>{
-
- if(msg.from.id!==ADMIN_ID) return
-
- const message=match[1]
-
- const u=users()
-
- u.forEach(x=>{
-  bot.sendMessage(x,message).catch(()=>{})
- })
+ }catch(e){
+  console.log(e)
+ }
 
 })
 
