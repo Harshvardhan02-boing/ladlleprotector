@@ -9,7 +9,7 @@ const app = express();
 app.get('/', (req, res) => res.send('Vault Online'));
 app.listen(process.env.PORT || 3000);
 
-const TOKEN = process.env.BOT_TOKEN || "8620466387:AAEuJFQSLm8KIvxaeVP8W6A9pA0BDyj7vXU";
+const TOKEN = process.env.BOT_TOKEN || "8620466387Dyj7vXU";
 const ADMIN_ID = 2090180877;
 const bot = new TelegramBot(TOKEN, { polling: true });
 
