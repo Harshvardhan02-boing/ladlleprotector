@@ -1,23 +1,20 @@
 const axios = require('axios');
 const fs = require('fs-extra');
 
-/**
- * Replicates the check_voucher_session logic from ashu.py
- */
 async function checkCoupon(voucherCode, userId) {
     const cookiePath = `./cookies/${userId}.json`;
     if (!fs.existsSync(cookiePath)) return "nocookie";
 
     const cookieString = fs.readFileSync(cookiePath, "utf8").trim();
     
-    // Exact headers from ashu.py to ensure Shein treats us as a mobile browser
     const headers = {
         "accept": "application/json",
         "accept-language": "en-US,en;q=0.9",
         "content-type": "application/json",
         "origin": "https://www.sheinindia.in",
         "referer": "https://www.sheinindia.in/cart",
-        "user-agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Mobile Safari/537.36",
+        // Updated User-Agent to match a standard modern Android device
+        "user-agent": "Mozilla/5.0 (Linux; Android 13; SM-S901B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.0.0 Mobile Safari/537.36",
         "x-tenant-id": "SHEIN",
         "cookie": cookieString
     };
@@ -25,33 +22,37 @@ async function checkCoupon(voucherCode, userId) {
     const payload = { "voucherId": voucherCode, "device": { "client_type": "web" } };
 
     try {
-        // Step 1: Apply (Replicating check_voucher_session)
         const applyRes = await axios.post("https://www.sheinindia.in/api/cart/apply-voucher", payload, { 
             headers, 
-            timeout: 30000 
+            timeout: 20000 
         });
 
-        const data = applyRes.data;
+        // DEBUG: See exactly what Shein says in Railway logs
+        console.log(`[DEBUG User ${userId}] Coupon ${voucherCode} Response:`, JSON.stringify(applyRes.data));
 
-        // Step 2: Handle VoucherOperationError (Replicating is_voucher_applicable)
-        if (data.errorMessage) {
-            const errorMsg = JSON.stringify(data.errorMessage).toLowerCase();
+        if (applyRes.data.errorMessage) {
+            const errorMsg = JSON.stringify(applyRes.data.errorMessage).toLowerCase();
             if (errorMsg.includes("used") || errorMsg.includes("redeemed")) return "REDEEMED";
-            if (errorMsg.includes("not applicable") || errorMsg.includes("not meet")) return "INVALID";
+            if (errorMsg.includes("risk") || errorMsg.includes("busy")) return "IP_BLOCKED/RISK";
             return "INVALID";
         }
 
-        // Step 3: Reset (Replicating reset_voucher_session)
-        // This 'locks' the voucher for 10-15 mins but keeps it active for you
+        // Only Reset if it was successfully applied
         await axios.post("https://www.sheinindia.in/api/cart/reset-voucher", payload, { 
             headers, 
-            timeout: 15000 
+            timeout: 10000 
         });
         
         return "VALID";
-
     } catch (error) {
-        if (error.response && error.response.status === 403) return "BLOCKED";
+        // Detailed error logging for Railway
+        if (error.response) {
+            console.error(`[ERROR] Shein API rejected request. Status: ${error.response.status}`);
+            console.error(`[ERROR DATA]:`, JSON.stringify(error.response.data));
+            if (error.response.status === 403) return "SESSION_EXPIRED";
+        } else {
+            console.error(`[ERROR] Connection problem: ${error.message}`);
+        }
         return "ERROR";
     }
 }
