@@ -4,85 +4,143 @@ const fs = require("fs-extra");
 const express = require('express');
 const { checkCoupon } = require("./checker");
 
-// --- 1. HEALTH CHECK SERVER FOR RAILWAY ---
+// --- RAILWAY HEALTH CHECK (Prevents SIGTERM) ---
 const app = express();
-const PORT = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('Bot Status: Active'));
-app.listen(PORT, () => console.log(`Railway Health Check listening on port ${PORT}`));
+app.get('/', (req, res) => res.send('Vault Online'));
+app.listen(process.env.PORT || 3000);
 
-// --- 2. BOT CONFIGURATION ---
-// Note: In Railway, use process.env.BOT_TOKEN for better security
-const TOKEN = process.env.BOT_TOKEN || "8620466387:AAEuJFQSLm8KIvxaeVP8W6A9pA0BDyj7vXU"; 
+const TOKEN = process.env.BOT_TOKEN || "8620466387:AAEuJFQSLm8KIvxaeVP8W6A9pA0BDyj7vXU";
+const ADMIN_ID = 2090180877;
 const bot = new TelegramBot(TOKEN, { polling: true });
 
-// Ensure directories exist
+// Ensure directories
 fs.ensureDirSync("./vouchers");
 fs.ensureDirSync("./cookies");
 if (!fs.existsSync("users.json")) fs.writeJsonSync("users.json", []);
 
 let mode = {};
+let valueMap = {};
+
+// --- HELPER FUNCTIONS (Preserving your UI structure) ---
+const users = () => fs.readJsonSync("users.json");
+const register = (id) => {
+    let u = users();
+    if (!u.includes(id)) { u.push(id); fs.writeJsonSync("users.json", u); }
+};
+const cookieExists = (id) => fs.existsSync(`./cookies/${id}.json`);
+const voucherFile = (id) => {
+    const path = `./vouchers/${id}.json`;
+    if (!fs.existsSync(path)) fs.writeJsonSync(path, { "500": [], "1000": [], "2000": [], "4000": [] });
+    return path;
+};
+const load = (id) => fs.readJsonSync(voucherFile(id));
+const save = (id, data) => fs.writeJsonSync(voucherFile(id), data);
 const indiaTime = () => new Date().toLocaleTimeString("en-IN", { timeZone: "Asia/Kolkata" });
 
-// --- 3. BOT LOGIC ---
-bot.onText(/\/start/, (msg) => {
-    const id = msg.from.id;
-    const menu = {
-        reply_markup: {
-            inline_keyboard: [
-                [{ text: "🍪 Set Cookies", callback_data: "cookie" }],
-                [{ text: "🔎 Check Coupons", callback_data: "check" }],
-                [{ text: "📊 Stats", callback_data: "stats" }]
-            ]
+function mainMenu(userId) {
+    let buttons = [
+        [{ text: "➕ Add Coupon", callback_data: "add" }],
+        [{ text: "📤 Retrieve Coupon", callback_data: "retrieve" }],
+        [{ text: "📊 My Coupons", callback_data: "stats" }],
+        [{ text: "🔎 Check Coupons", callback_data: "check" }],
+        [{ text: "🍪 Set Cookies", callback_data: "cookie" }],
+        [{ text: "🔍 Cookie Status", callback_data: "status" }]
+    ];
+    if (userId === ADMIN_ID) buttons.push([{ text: "📢 Announcement", callback_data: "announce" }]);
+    return { reply_markup: { inline_keyboard: buttons } };
+}
+
+function categoryMenu() {
+    return { reply_markup: { inline_keyboard: [
+        [{ text: "₹500", callback_data: "val_500" }], [{ text: "₹1000", callback_data: "val_1000" }],
+        [{ text: "₹2000", callback_data: "val_2000" }], [{ text: "₹4000", callback_data: "val_4000" }],
+        [{ text: "⬅ Back", callback_data: "menu" }]
+    ] } };
+}
+
+// --- BOT HANDLERS ---
+bot.onText(/\/start/, msg => {
+    register(msg.from.id);
+    bot.sendMessage(msg.from.id, `💳 Coupon Manager\n\nChoose an option below`, mainMenu(msg.from.id));
+});
+
+bot.on("callback_query", async q => {
+    const id = q.from.id;
+    const data = q.data;
+    if (data === "menu") return bot.sendMessage(id, "Main Menu", mainMenu(id));
+    if (data === "cookie") { mode[id] = "cookie"; return bot.sendMessage(id, `🍪 Set Cookies\n\nPaste cookie here.`); }
+    if (data === "add") { if (!cookieExists(id)) return bot.sendMessage(id, "🍪 Please set cookies first"); mode[id] = "add"; return bot.sendMessage(id, "Select value", categoryMenu()); }
+    if (data === "check") { if (!cookieExists(id)) return bot.sendMessage(id, "🍪 Cookies required"); mode[id] = "check"; return bot.sendMessage(id, `Send coupons to check\nMax 50`); }
+    if (data === "stats") {
+        const d = load(id);
+        return bot.sendMessage(id, `📊 Coupons\n\n500: ${d["500"].length}\n1000: ${d["1000"].length}\n2000: ${d["2000"].length}\n4000: ${d["4000"].length}`);
+    }
+    if (data.startsWith("val_")) {
+        valueMap[id] = data.split("_")[1];
+        if (mode[id] === "add") return bot.sendMessage(id, "Send coupon code");
+        if (mode[id] === "retrieve") {
+            const d = load(id), val = valueMap[id];
+            if (d[val].length === 0) return bot.sendMessage(id, "No coupons");
+            const code = d[val].shift(); save(id, d);
+            return bot.sendMessage(id, `Coupon:\n${code}`);
         }
-    };
-    bot.sendMessage(id, "💳 *Shein India Coupon Manager*\n\nSet your cookies first, then send coupons to check against your live cart.", { parse_mode: "Markdown", ...menu });
-});
-
-bot.on("callback_query", async (query) => {
-    const id = query.from.id;
-    if (query.data === "cookie") {
-        mode[id] = "cookie";
-        bot.sendMessage(id, "🍪 Please paste your Shein India cookie string now.");
-    }
-    if (query.data === "check") {
-        if (!fs.existsSync(`./cookies/${id}.json`)) return bot.sendMessage(id, "❌ Set cookies first!");
-        mode[id] = "check";
-        bot.sendMessage(id, "🔎 Send coupons (one per line) to test on your cart:");
-    }
-    if (query.data === "stats") {
-        const d = fs.existsSync(`./vouchers/${id}.json`) ? fs.readJsonSync(`./vouchers/${id}.json`) : {};
-        bot.sendMessage(id, `📊 Check records are currently stored locally.`);
     }
 });
 
-bot.on("message", async (msg) => {
-    const id = msg.from.id;
-    const text = msg.text;
+bot.on("message", async msg => {
+    const id = msg.from.id, text = msg.text;
     if (!text || text.startsWith("/")) return;
 
     if (mode[id] === "cookie") {
-        fs.writeJsonSync(`./cookies/${id}.json`, { cookie: text.trim() });
+        fs.writeFileSync(`./cookies/${id}.json`, text.trim());
         mode[id] = null;
-        return bot.sendMessage(id, "✅ Cookies saved and active.");
+        return bot.sendMessage(id, "🍪 Cookies saved");
+    }
+
+    if (mode[id] === "add") {
+        const val = valueMap[id], d = load(id), code = text.trim();
+        if (d[val].includes(code)) return bot.sendMessage(id, "Already stored");
+        d[val].push(code); save(id, d);
+        mode[id] = null;
+        return bot.sendMessage(id, "✅ Coupon added to Vault");
     }
 
     if (mode[id] === "check") {
-        const codes = text.split("\n").map(c => c.trim()).filter(c => c).slice(0, 30);
-        bot.sendMessage(id, `🔄 Testing ${codes.length} coupons...`);
-
-        let results = [];
-        for (const code of codes) {
-            const status = await checkCoupon(code, id);
-            let icon = (status === "VALID") ? "🟢" : (status === "REDEEMED" ? "🟡" : "🔴");
-            results.push(`${icon} \`${code}\`: ${status}`);
-            
-            // Delay to prevent IP blocks (Shein is strict)
-            await new Promise(r => setTimeout(r, 4000));
+        const coupons = text.replace(/,/g, "\n").split("\n").map(x => x.trim()).filter(x => x).slice(0, 50);
+        bot.sendMessage(id, `🔍 Checking ${coupons.length} coupons on your live cart...`);
+        let out = [];
+        for (const code of coupons) {
+            const res = await checkCoupon(code, id);
+            let emoji = res === "VALID" ? "🟢" : (res === "REDEEMED" ? "🟡" : "🔴");
+            out.push(`${emoji} ${code}\nStatus: ${res}\nTime: ${indiaTime()}\n──────`);
+            await new Promise(r => setTimeout(r, 4000)); // Replicating Python delay
         }
-
-        bot.sendMessage(id, `📊 *Results (${indiaTime()})*\n\n${results.join("\n")}`, { parse_mode: "Markdown" });
+        bot.sendMessage(id, out.join("\n"));
         mode[id] = null;
     }
 });
 
-console.log("Bot process started.");
+// --- THE PROTECTOR LOOP (Replicating the Auto-Check mode) ---
+async function protectCoupons(userId) {
+    if (!cookieExists(userId)) return;
+    const data = load(userId);
+    const all = [...data["500"], ...data["1000"], ...data["2000"], ...data["4000"]];
+    
+    console.log(`🛡️ Protecting ${all.length} coupons for User ${userId}`);
+    for (const code of all) {
+        // This automatically applies and resets via the checker logic
+        await checkCoupon(code, userId);
+        // Wait 5 seconds between each coupon to avoid blocking
+        await new Promise(r => setTimeout(r, 5000)); 
+    }
+}
+
+// Runs every 220 seconds as per ashu.py
+setInterval(async () => {
+    const u = users();
+    for (const user of u) {
+        await protectCoupons(user);
+    }
+}, 220000);
+
+console.log("Vault Bot Running...");
