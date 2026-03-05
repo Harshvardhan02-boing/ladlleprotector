@@ -1,12 +1,16 @@
 const axios = require('axios');
 const fs = require('fs-extra');
 
+/**
+ * Replicates the check_voucher_session logic from ashu.py
+ */
 async function checkCoupon(voucherCode, userId) {
     const cookiePath = `./cookies/${userId}.json`;
     if (!fs.existsSync(cookiePath)) return "nocookie";
 
-    const { cookie } = fs.readJsonSync(cookiePath);
+    const cookieString = fs.readFileSync(cookiePath, "utf8").trim();
     
+    // Exact headers from ashu.py to ensure Shein treats us as a mobile browser
     const headers = {
         "accept": "application/json",
         "accept-language": "en-US,en;q=0.9",
@@ -15,31 +19,33 @@ async function checkCoupon(voucherCode, userId) {
         "referer": "https://www.sheinindia.in/cart",
         "user-agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Mobile Safari/537.36",
         "x-tenant-id": "SHEIN",
-        "cookie": cookie
+        "cookie": cookieString
     };
 
-    const payload = { 
-        "voucherId": voucherCode, 
-        "device": { "client_type": "web" } 
-    };
+    const payload = { "voucherId": voucherCode, "device": { "client_type": "web" } };
 
     try {
-        // 1. Try to Apply to real cart
-        const response = await axios.post("https://www.sheinindia.in/api/cart/apply-voucher", payload, { 
+        // Step 1: Apply (Replicating check_voucher_session)
+        const applyRes = await axios.post("https://www.sheinindia.in/api/cart/apply-voucher", payload, { 
             headers, 
-            timeout: 15000 
+            timeout: 30000 
         });
 
-        if (response.data.errorMessage) {
-            const msg = JSON.stringify(response.data.errorMessage).toLowerCase();
-            if (msg.includes("used") || msg.includes("redeemed")) return "REDEEMED";
+        const data = applyRes.data;
+
+        // Step 2: Handle VoucherOperationError (Replicating is_voucher_applicable)
+        if (data.errorMessage) {
+            const errorMsg = JSON.stringify(data.errorMessage).toLowerCase();
+            if (errorMsg.includes("used") || errorMsg.includes("redeemed")) return "REDEEMED";
+            if (errorMsg.includes("not applicable") || errorMsg.includes("not meet")) return "INVALID";
             return "INVALID";
         }
 
-        // 2. If valid, Reset immediately to "save" the coupon
+        // Step 3: Reset (Replicating reset_voucher_session)
+        // This 'locks' the voucher for 10-15 mins but keeps it active for you
         await axios.post("https://www.sheinindia.in/api/cart/reset-voucher", payload, { 
             headers, 
-            timeout: 10000 
+            timeout: 15000 
         });
         
         return "VALID";
