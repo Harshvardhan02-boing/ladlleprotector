@@ -1,6 +1,7 @@
 {
-  "name": "shein-coupon-bot",
+  "name": "shein-coupon-vault",
   "version": "1.0.0",
+  "description": "Telegram bot for Shein India coupons with automated protection",
   "main": "main.js",
   "scripts": {
     "start": "node main.js"
